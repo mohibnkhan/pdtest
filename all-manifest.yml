@@ -1,0 +1,221 @@
+#This will be outside the solution.
+# kind: StorageClass
+# apiVersion: storage.k8s.io/v1
+# metadata:
+#   name: sv-azurefile-proofdock
+# provisioner: kubernetes.io/azure-disk
+# parameters:
+#   skuName: Standard_LRS
+#   kind: Managed
+#   cachingmode: None
+# ---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-azurefile-proofdock
+  labels:
+    app: proofdock-app  
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: sv-azurefile-proofdock
+  resources:
+    requests:
+      storage: 5Gi
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+    name: proofdock-mysql-secret
+type: Opaque
+data:
+    user-name: dXNlcm5hbWU=
+    db-password: cGFzc3dvcmQ=
+
+---
+apiVersion: apps/v1  
+kind: Deployment
+metadata:
+  name: proofdock-mysql
+  labels:
+    app: proofdock-app
+spec:
+  selector:
+    matchLabels:
+      app: proofdock-app
+      tier: mysql
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: proofdock-app
+        tier: mysql
+    spec:
+      containers:
+        - image: mysql:latest
+          name: mysql
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: password
+              # valueFrom:
+              #   secretKeyRef:
+              #     name: proofdock-mysql-secret
+              #     key: db-password
+          ports:
+            - containerPort: 3306
+              name: mysql
+          volumeMounts:
+            - name: mysql-persistent-storage
+              mountPath: /var/lib/mysql
+              subPath: data
+            - name: mysql-initdb
+              mountPath: /docker-entrypoint-initdb.d       
+            - name: mysql-config-volume ## specify volume name
+              mountPath: /etc/mysql/conf.d/default_auth.cnf ## path to mount file
+              subPath: default_auth ## name of config                                     
+      volumes:
+        - name: mysql-persistent-storage
+          persistentVolumeClaim:
+            claimName: pvc-azurefile-proofdock
+        - name: mysql-initdb
+          configMap:
+            name: mysql-initdb-config            
+        - name: mysql-config-volume ## volume name
+          configMap:
+            name: mysql-auth-config ## name of ConfigMap            
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-initdb-config
+data:
+  initdb.sql: |
+    CREATE SCHEMA IF NOT EXISTS myflaskapp;
+    USE myflaskapp;
+    CREATE TABLE IF NOT EXISTS `students` (`id` int(11) NOT NULL AUTO_INCREMENT,`idno` varchar(30) NOT NULL,`firstname` varchar(100) NOT NULL,`lastname` varchar(100) NOT NULL,`gender` varchar(100) NOT NULL,`course` varchar(100) NOT NULL,`year` int(11) NOT NULL,`create_date` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY (`id`)) ENGINE=MyISAM AUTO_INCREMENT=8;
+    INSERT INTO `students` (`id`, `idno`, `firstname`, `lastname`, `gender`, `course`, `year`, `create_date`) VALUES(6, '2018-5829', 'Zia Mae', 'Beveridge', 'Female', 'BS Computer Science', 3, '2020-10-19 13:19:38'),(7, '2018-5830', 'Mersan', 'Canonigo', 'Male', 'BS Computer Science', 3, '2020-10-19 13:19:52');
+    CREATE TABLE IF NOT EXISTS `userlogin` (`userid` int(11) NOT NULL AUTO_INCREMENT,`name` varchar(100) NOT NULL,`email` varchar(100) NOT NULL,`username` varchar(30) NOT NULL,`password` varchar(100) NOT NULL,`register_date` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY (`userid`)) ENGINE=MyISAM AUTO_INCREMENT=11 DEFAULT CHARSET=latin1;
+    INSERT INTO `userlogin` (`userid`, `name`, `email`, `username`, `password`, `register_date`) VALUES(9, 'Zia Abella', 'abellazia17@gmail.com', 'ziamaea', '$5$rounds=535000$V/eBVbPCk1FqYe3/$eJjwFF7D98gP1Vea1YUHPrnFejxaw8bYMpVG30ae/zD', '2020-10-18 14:56:09'),(10, 'Andre', 'isaiahandre.pabillon@g.msuiit.edu.ph', 'isaiahandre', '$5$rounds=535000$bw/hfZGaIP8ZYkbN$OXfxOaDwzMLsH/BPX515ls5/Ho.Ld2CdhC9QR4AGTO.', '2020-10-19 17:23:03');
+    COMMIT;
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  ## name of ConfigMap. This will be referred from volume definition
+  name: mysql-auth-config
+  labels:
+    app: proofdock-app
+data:
+  ## default_auth is the name of config. This will be referred from volume mount definition
+  default_auth: |
+    [mysqld]
+    default_authentication_plugin=mysql_native_password
+
+
+
+---
+#Deployment of Adminer
+apiVersion: apps/v1  
+kind: Deployment
+metadata:
+  name: proofdock-adminer
+  labels:
+    app: proofdock-app
+spec:
+  selector:
+    matchLabels:
+      app: proofdock-app
+      tier: adminer
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: proofdock-app
+        tier: adminer
+    spec:
+      containers:
+        - image: adminer
+          name: adminer
+          ports:
+            - containerPort: 8080
+
+---
+#Deployment of Application
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proofdock-app
+  labels:
+    app: proofdock-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: proofdock-app
+  template:
+    metadata:
+      labels:
+        app: proofdock-app
+    spec:
+      containers:
+      - name: pdapp   #name change
+        image: mohibnkhan/pdapp
+        ports:
+        - containerPort: 8181
+
+---
+#Service for Database
+apiVersion: v1
+kind: Service
+metadata:
+  name: proofdock-mysql
+  labels:
+    app: proofdock-app
+spec:
+  type: LoadBalancer  
+  ports:
+    - protocol: TCP
+      port: 3306
+      targetPort: 3306    
+    # - port: 3306
+  selector:
+    app: proofdock-app
+    tier: mysql
+  # clusterIP: None
+
+---
+#Service for Application
+apiVersion: v1
+kind: Service
+metadata:
+  name: proofdock-app-service
+spec:
+  selector:
+    app: proofdock-app
+  type: LoadBalancer
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 8181
+
+---
+#Service for Adminer
+apiVersion: v1
+kind: Service
+metadata:
+  name: proofdock-adminer
+spec:
+  selector:
+    app: proofdock-app
+    tier: adminer
+  type: LoadBalancer
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
