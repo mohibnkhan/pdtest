@@ -3,15 +3,14 @@ from flask_mysqldb import MySQL
 from wtforms import Form, StringField, TextAreaField, PasswordField, validators
 from passlib.hash import sha256_crypt
 from functools import wraps
-#import mysql.connector
 
 
 app = Flask(__name__)
 
 # Config MySQL
-app.config['MYSQL_HOST'] = '192.168.0.105'
-app.config['MYSQL_USER'] = 'mysqluser'
-app.config['MYSQL_PASSWORD'] = 'i8910HD!'
+app.config['MYSQL_HOST'] = 'proofdock-mysql'
+app.config['MYSQL_USER'] = 'root'
+app.config['MYSQL_PASSWORD'] = 'password'
 app.config['MYSQL_DB'] = 'myflaskapp'
 app.config['MYSQL_CURSORCLASS'] = 'DictCursor'
 
